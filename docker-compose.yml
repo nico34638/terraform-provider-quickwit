@@ -7,7 +7,7 @@
 # Host ports can be changed with QUICKWIT_PORT, KAFKA_PORT and LOCALSTACK_PORT.
 services:
   quickwit:
-    image: quickwit/quickwit:${QUICKWIT_VERSION:-edge}
+    image: quickwit/quickwit:${QUICKWIT_VERSION:-0.9.3}
     command: run
     ports:
       - "${QUICKWIT_PORT:-7280}:7280"
