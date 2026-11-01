@@ -33,6 +33,9 @@ data "quickwit_field_text" "message" {
 resource "quickwit_index" "logs" {
   index_id = "logs"
 
+  # Refuse destroy and recreation (e.g. a timestamp_field change), which delete all documents.
+  deletion_protection = true
+
   doc_mapping = {
     mode = "dynamic"
     field_mappings = [
@@ -64,6 +67,7 @@ resource "quickwit_index" "logs" {
 
 ### Optional
 
+- `deletion_protection` (Boolean) Refuse to delete the index, and with it all its documents and sources: destroying it, or changing an attribute that recreates it (`index_id`, `index_uri`, `doc_mapping.timestamp_field`), fails. Set it to `false` and apply first to allow it. Not sent to Quickwit. Defaults to `false`.
 - `index_uri` (String) Storage URI of the index (`s3://bucket/indexes/foo`, `file:///var/lib/quickwit/indexes/foo`). Defaults to the node's `default_index_root_uri` joined with `index_id`. File paths must be absolute. Compared semantically: `file:///a/b/` and `file:///a/b` are the same URI. Changing it recreates the index.
 - `indexing_settings` (Attributes) Indexing settings. (see [below for nested schema](#nestedatt--indexing_settings))
 - `ingest_settings` (Attributes) Ingest API settings. (see [below for nested schema](#nestedatt--ingest_settings))

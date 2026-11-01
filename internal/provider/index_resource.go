@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 
@@ -32,8 +35,30 @@ func (r *indexResource) Metadata(_ context.Context, req resource.MetadataRequest
 	resp.TypeName = req.ProviderTypeName + "_index"
 }
 
+// indexResourceModel adds to IndexModel the attributes that only exist on
+// the resource, not on the index data source.
+type indexResourceModel struct {
+	IndexModel
+	DeletionProtection types.Bool `tfsdk:"deletion_protection"`
+}
+
+// withDeletionProtection pairs a model built by fromAPI with the
+// provider-only deletion_protection, false when unknown (e.g. after import).
+func withDeletionProtection(m IndexModel, protection types.Bool) indexResourceModel {
+	if protection.IsNull() || protection.IsUnknown() {
+		protection = types.BoolValue(false)
+	}
+	return indexResourceModel{IndexModel: m, DeletionProtection: protection}
+}
+
 func (r *indexResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = indexSchema()
+	resp.Schema.Attributes["deletion_protection"] = schema.BoolAttribute{
+		Optional: true, Computed: true, Default: booldefault.StaticBool(false),
+		MarkdownDescription: "Refuse to delete the index, and with it all its documents and sources: destroying it, or changing an " +
+			"attribute that recreates it (`index_id`, `index_uri`, `doc_mapping.timestamp_field`), fails. " +
+			"Set it to `false` and apply first to allow it. Not sent to Quickwit. Defaults to `false`.",
+	}
 }
 
 func (r *indexResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -44,12 +69,12 @@ func (r *indexResource) Create(ctx context.Context, req resource.CreateRequest, 
 	if !configured(r.client, &resp.Diagnostics) {
 		return
 	}
-	var plan IndexModel
+	var plan indexResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	cfg, diags := toAPI(ctx, plan)
+	cfg, diags := toAPI(ctx, plan.IndexModel)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -59,16 +84,16 @@ func (r *indexResource) Create(ctx context.Context, req resource.CreateRequest, 
 		resp.Diagnostics.AddError("Failed to create index "+cfg.IndexID, err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, meta, plan, false)
+	state, diags := fromAPI(ctx, meta, plan.IndexModel, false)
 	resp.Diagnostics.Append(diags...)
-	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, withDeletionProtection(state, plan.DeletionProtection))...)
 }
 
 func (r *indexResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	if !configured(r.client, &resp.Diagnostics) {
 		return
 	}
-	var prior IndexModel
+	var prior indexResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -82,21 +107,21 @@ func (r *indexResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		resp.Diagnostics.AddError("Failed to read index "+prior.IndexID.ValueString(), err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, meta, prior, false)
+	state, diags := fromAPI(ctx, meta, prior.IndexModel, false)
 	resp.Diagnostics.Append(diags...)
-	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, withDeletionProtection(state, prior.DeletionProtection))...)
 }
 
 func (r *indexResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	if !configured(r.client, &resp.Diagnostics) {
 		return
 	}
-	var plan IndexModel
+	var plan indexResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	cfg, diags := toAPI(ctx, plan)
+	cfg, diags := toAPI(ctx, plan.IndexModel)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -106,18 +131,24 @@ func (r *indexResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		resp.Diagnostics.AddError("Failed to update index "+cfg.IndexID, err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, meta, plan, false)
+	state, diags := fromAPI(ctx, meta, plan.IndexModel, false)
 	resp.Diagnostics.Append(diags...)
-	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, withDeletionProtection(state, plan.DeletionProtection))...)
 }
 
 func (r *indexResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	if !configured(r.client, &resp.Diagnostics) {
 		return
 	}
-	var state IndexModel
+	var state indexResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	// Also checked by ModifyPlan; this catches what the plan cannot see
+	// (`terraform apply -replace`, a replacement planned on unknown values).
+	if state.DeletionProtection.ValueBool() {
+		resp.Diagnostics.Append(deletionProtectionError(state.IndexID.ValueString(), "deleted"))
 		return
 	}
 	err := r.client.DeleteIndex(ctx, state.IndexID.ValueString())
@@ -126,19 +157,44 @@ func (r *indexResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	}
 }
 
+func deletionProtectionError(indexID, what string) diag.Diagnostic {
+	return diag.NewAttributeErrorDiagnostic(path.Root("deletion_protection"), "Index protected against deletion",
+		fmt.Sprintf("Index %s would be %s, together with all its documents and sources, but deletion_protection is true. "+
+			"Set deletion_protection = false and apply first.", indexID, what))
+}
+
 func (r *indexResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("index_id"), req.ID)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), req.ID)...)
 }
 
 // ModifyPlan rejects at plan time what Quickwit would reject at apply time,
-// and keeps doc_mapping_uid known when the doc mapping does not change.
+// enforces deletion_protection, and keeps doc_mapping_uid known when the doc
+// mapping does not change.
 func (r *indexResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if req.Plan.Raw.IsNull() {
-		return // destroy
+	var state indexResourceModel
+	if !req.State.Raw.IsNull() {
+		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
-	var plan IndexModel
+	if req.Plan.Raw.IsNull() { // destroy
+		if state.DeletionProtection.ValueBool() {
+			resp.Diagnostics.Append(deletionProtectionError(state.IndexID.ValueString(), "destroyed"))
+		}
+		return
+	}
+	var plan indexResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !req.State.Raw.IsNull() && state.DeletionProtection.ValueBool() {
+		if attr := replacedBy(ctx, plan.IndexModel, state.IndexModel, &resp.Diagnostics); attr != "" {
+			resp.Diagnostics.Append(deletionProtectionError(state.IndexID.ValueString(), "recreated (`"+attr+"` changes)"))
+		}
+	}
 	if resp.Diagnostics.HasError() || plan.DocMapping.IsUnknown() {
 		return
 	}
@@ -158,11 +214,6 @@ func (r *indexResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 
 	if req.State.Raw.IsNull() {
 		return // create
-	}
-	var state IndexModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
 	}
 	var stateDM docMappingModel
 	resp.Diagnostics.Append(state.DocMapping.As(ctx, &stateDM, basetypes.ObjectAsOptions{})...)
@@ -186,6 +237,31 @@ func (r *indexResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	if docMappingUnchanged(dm, stateDM) {
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, dmPath.AtName("doc_mapping_uid"), stateDM.DocMappingUID)...)
 	}
+}
+
+// replacedBy returns the first RequiresReplace attribute whose planned value
+// is known and differs from the state, or "". The framework only applies the
+// attributes' RequiresReplace after the resource ModifyPlan, so it is
+// recomputed here. Equivalent rewrites were already replaced by the state
+// value (useStateWhenEquivalent).
+func replacedBy(ctx context.Context, plan, state IndexModel, diags *diag.Diagnostics) string {
+	changed := func(p, s attr.Value) bool { return !p.IsUnknown() && !p.Equal(s) }
+	if changed(plan.IndexID, state.IndexID) {
+		return "index_id"
+	}
+	if changed(plan.IndexURI, state.IndexURI) {
+		return "index_uri"
+	}
+	if plan.DocMapping.IsUnknown() {
+		return ""
+	}
+	var p, s docMappingModel
+	diags.Append(plan.DocMapping.As(ctx, &p, basetypes.ObjectAsOptions{UnhandledUnknownAsEmpty: true})...)
+	diags.Append(state.DocMapping.As(ctx, &s, basetypes.ObjectAsOptions{})...)
+	if changed(p.TimestampField, s.TimestampField) {
+		return "doc_mapping.timestamp_field"
+	}
+	return ""
 }
 
 func docMappingUnchanged(a, b docMappingModel) bool {

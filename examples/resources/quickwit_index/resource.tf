@@ -18,6 +18,9 @@ data "quickwit_field_text" "message" {
 resource "quickwit_index" "logs" {
   index_id = "logs"
 
+  # Refuse destroy and recreation (e.g. a timestamp_field change), which delete all documents.
+  deletion_protection = true
+
   doc_mapping = {
     mode = "dynamic"
     field_mappings = [
