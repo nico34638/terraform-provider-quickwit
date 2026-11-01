@@ -2,9 +2,8 @@
 # https://developer.hashicorp.com/terraform/registry/providers/publishing
 version: 2
 
-before:
-  hooks:
-    - go mod tidy
+# No `go mod tidy` hook: the release builds exactly the tagged go.mod/go.sum
+# (CI checks they are tidy with `go mod tidy -diff`).
 
 builds:
   - env:

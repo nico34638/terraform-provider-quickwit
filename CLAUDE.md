@@ -84,4 +84,9 @@ e2e/run.sh                                       # end-to-end on a real cluster
   modules and GitHub Actions, as `chore(deps)` / `ci(deps)` commits. The
   compose images are pinned by hand (`QUICKWIT_VERSION`, `CP_VERSION`,
   `LOCALSTACK_VERSION`).
+- Actions are pinned by commit SHA with the exact version as a comment
+  (`uses: actions/checkout@<sha> # v7.0.1`), which Dependabot keeps up to
+  date; never pin a new action by tag. goreleaser itself is pinned in
+  `release.yml` (`version: v2.x.y`) and bumped by hand. The release builds
+  the tagged `go.mod`/`go.sum` as is: CI checks them with `go mod tidy -diff`.
 - Never commit `.claude/`, `release-signing-key.asc` or `sandbox/`.
