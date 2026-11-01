@@ -478,3 +478,66 @@ resource "quickwit_index" "test" {
 		},
 	})
 }
+
+// TestAccIndex_deletionProtection: a protected index can be neither
+// destroyed nor recreated (the plan fails, nothing is deleted); turning the
+// protection off first allows both.
+func TestAccIndex_deletionProtection(t *testing.T) {
+	id := randomIndexID()
+	config := func(protect bool, timestampField string) string {
+		return fmt.Sprintf(`
+data "quickwit_field_datetime" "ts" {
+  name = "ts"
+  fast = true
+}
+data "quickwit_field_datetime" "ts2" {
+  name = "ts2"
+  fast = true
+}
+resource "quickwit_index" "test" {
+  index_id            = %q
+  deletion_protection = %t
+  doc_mapping = {
+    field_mappings  = [data.quickwit_field_datetime.ts.json, data.quickwit_field_datetime.ts2.json]
+    timestamp_field = %q
+  }
+}`, id, protect, timestampField)
+	}
+	protected := regexp.MustCompile(`Index protected against deletion`)
+	var uid string
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviders,
+		CheckDestroy:             checkIndexDestroyed(id),
+		Steps: []resource.TestStep{
+			{
+				Config: config(true, "ts"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("quickwit_index.test", "deletion_protection", "true"),
+					storeAttr("quickwit_index.test", "index_uid", &uid),
+				),
+			},
+			{Config: config(true, "ts2"), PlanOnly: true, ExpectError: protected},
+			{Config: config(true, "ts"), Destroy: true, ExpectError: protected},
+			{
+				// Still the same index: nothing was deleted.
+				Config: config(true, "ts"),
+				Check:  checkAttrEquals("quickwit_index.test", "index_uid", &uid),
+			},
+			{
+				// Lifting the protection is an in-place, provider-only change.
+				Config: config(false, "ts"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction("quickwit_index.test", plancheck.ResourceActionUpdate),
+				}},
+				Check: checkAttrEquals("quickwit_index.test", "index_uid", &uid),
+			},
+			{
+				Config: config(false, "ts2"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction("quickwit_index.test", plancheck.ResourceActionReplace),
+				}},
+			},
+		},
+	})
+}
