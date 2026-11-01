@@ -152,17 +152,31 @@ func (v normalizedValue) ValidateAttribute(_ context.Context, req xattr.Validate
 // useStateWhenEquivalent plans the prior state value when the configured
 // value is semantically equal to it. Semantic equality only applies to the
 // values returned by Create, Read and Update: without this modifier, writing
-// a value in another equivalent form would plan an update, or a replacement
-// for an attribute with RequiresReplace (which must come after it).
+// a value in another equivalent form ("2GB" -> "2000MB", reformatted JSON)
+// would plan a no-op update, or a replacement for an attribute with
+// RequiresReplace (which must come after it).
+//
+// Terraform core explicitly allows planning the prior value instead of a
+// non-null configured one, for any attribute (assertPlannedValueValid in
+// internal/plans/objchange/plan_valid.go: "configV and plannedV are
+// functionally equivalent").
+//
+// On a list, the prior value is kept only when every element is equivalent,
+// in order (Quickwit compares field mappings and tokenizers in order too).
 type useStateWhenEquivalent struct{ kind normKind }
 
-var _ planmodifier.String = useStateWhenEquivalent{}
+var (
+	_ planmodifier.String = useStateWhenEquivalent{}
+	_ planmodifier.List   = useStateWhenEquivalent{}
+)
 
 func (m useStateWhenEquivalent) Description(context.Context) string {
 	return "Keeps the current value when the configured one is equivalent."
 }
 
-func (m useStateWhenEquivalent) MarkdownDescription(ctx context.Context) string { return m.Description(ctx) }
+func (m useStateWhenEquivalent) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
 
 func (m useStateWhenEquivalent) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
 	if req.StateValue.IsNull() || req.PlanValue.IsNull() || req.PlanValue.IsUnknown() || req.PlanValue.Equal(req.StateValue) {
@@ -174,4 +188,28 @@ func (m useStateWhenEquivalent) PlanModifyString(ctx context.Context, req planmo
 	if equal {
 		resp.PlanValue = req.StateValue
 	}
+}
+
+func (m useStateWhenEquivalent) PlanModifyList(ctx context.Context, req planmodifier.ListRequest, resp *planmodifier.ListResponse) {
+	if req.StateValue.IsNull() || req.StateValue.IsUnknown() || req.PlanValue.IsNull() || req.PlanValue.IsUnknown() ||
+		req.PlanValue.Equal(req.StateValue) {
+		return
+	}
+	planned, prior := req.PlanValue.Elements(), req.StateValue.Elements()
+	if len(planned) != len(prior) {
+		return
+	}
+	for i := range planned {
+		p, ok1 := planned[i].(normalizedValue)
+		s, ok2 := prior[i].(normalizedValue)
+		if !ok1 || !ok2 || p.IsNull() || p.IsUnknown() || s.IsNull() || s.IsUnknown() || p.kind != m.kind {
+			return
+		}
+		equal, diags := p.StringSemanticEquals(ctx, s)
+		resp.Diagnostics.Append(diags...)
+		if !equal {
+			return
+		}
+	}
+	resp.PlanValue = req.StateValue
 }

@@ -72,6 +72,7 @@ func indexSchema() schema.Schema {
 		"max_finalize_split_num_docs":   optInt("limit_merge: maximum number of docs of splits merged when finalizing a source."),
 		"maturation_period": schema.StringAttribute{
 			Optional: true, CustomType: durationType,
+			PlanModifiers:       []planmodifier.String{useStateWhenEquivalent{kind: kindDuration}},
 			MarkdownDescription: "stable_log, limit_merge: time after which a split is mature and no longer merged (`48h`, `2days`). Server default `2days`.",
 		},
 	}
@@ -116,10 +117,12 @@ func indexSchema() schema.Schema {
 					},
 					"dynamic_mapping": schema.StringAttribute{
 						Optional: true, CustomType: dynamicMappingType,
+						PlanModifiers:       []planmodifier.String{useStateWhenEquivalent{kind: kindDynamicMapping}},
 						MarkdownDescription: "JSON options applied to unmapped fields in `dynamic` mode (same options as a `json` field: `indexed`, `stored`, `tokenizer`, `record`, `expand_dots`, `fast`). Only allowed with `mode = \"dynamic\"`.",
 					},
 					"field_mappings": schema.ListAttribute{
 						Optional: true, Computed: true, ElementType: fieldMappingType,
+						PlanModifiers:       []planmodifier.List{useStateWhenEquivalent{kind: kindFieldMapping}},
 						Default:             listdefault.StaticValue(types.ListValueMust(fieldMappingType, []attr.Value{})),
 						MarkdownDescription: "Field mappings, as JSON documents. Use the `json` output of `quickwit_field_*` data sources. Compared semantically: defaults and key order never cause diffs.",
 					},
@@ -145,6 +148,7 @@ func indexSchema() schema.Schema {
 					"store_source":         optBool("Store the original document in `_source`. Defaults to `false`."),
 					"tokenizers": schema.ListAttribute{
 						Optional: true, Computed: true, ElementType: tokenizerType,
+						PlanModifiers:       []planmodifier.List{useStateWhenEquivalent{kind: kindTokenizer}},
 						Default:             listdefault.StaticValue(types.ListValueMust(tokenizerType, []attr.Value{})),
 						MarkdownDescription: "Custom tokenizers, as JSON documents (`data.quickwit_tokenizer.x.json`). Tokenizers can only be added, never removed or changed, without recreating the index.",
 					},
@@ -165,6 +169,7 @@ func indexSchema() schema.Schema {
 					"split_num_docs_target":      defInt(defaultSplitNumDocsTarget, "Target number of documents per split. Defaults to `10000000`."),
 					"heap_size": schema.StringAttribute{
 						Optional: true, Computed: true, CustomType: byteSizeType,
+						PlanModifiers:       []planmodifier.String{useStateWhenEquivalent{kind: kindByteSize}},
 						Default:             stringdefault.StaticString(defaultHeapSize),
 						MarkdownDescription: "Indexer heap size per pipeline (`resources.heap_size`), e.g. `2GB`, `500MiB`. Defaults to `2GB`.",
 					},
@@ -235,6 +240,7 @@ func indexSchema() schema.Schema {
 					},
 					"evaluation_schedule_jitter": schema.StringAttribute{
 						Optional: true, CustomType: durationType,
+						PlanModifiers:       []planmodifier.String{useStateWhenEquivalent{kind: kindDuration}},
 						MarkdownDescription: "Maximum random delay added to each evaluation, e.g. `10min`.",
 					},
 				},

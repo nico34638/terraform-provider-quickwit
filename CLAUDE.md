@@ -22,9 +22,12 @@ Design and API facts: `docs/PLAN.md`.
 
 - `quickwit_index` stays atomic: one full PUT per update, the doc mapping is a
   list of JSON strings built by the field data sources. No per-field resources.
-- No false diffs: values the server rewrites (JSON, sizes, durations) use the
-  semantic-equality types of `semantic_types.go`; on Read keep the prior state
-  value when it is semantically equal.
+- No false diffs: values the server rewrites (JSON, sizes, durations, URIs)
+  use the semantic-equality types of `semantic_types.go`; on Read keep the
+  prior state value when it is semantically equal. Semantic equality does not
+  apply at plan time: each such attribute also gets the
+  `useStateWhenEquivalent` plan modifier (before any `RequiresReplace`), so an
+  equivalent rewrite in the config plans nothing.
 - Reject at plan time (`ModifyPlan`, validators) what Quickwit would reject at
   apply time, mirroring the Rust rules (`quickwit-config`, `quickwit-doc-mapper`
   in `~/dev/rust/quickwit`). Check the Rust source before assuming an API
