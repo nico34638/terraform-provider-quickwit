@@ -7,3 +7,5 @@ result
 .terraform/
 .terraform.lock.hcl
 release-signing-key.asc
+.claude/
+sandbox/
