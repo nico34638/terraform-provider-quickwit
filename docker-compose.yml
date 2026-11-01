@@ -1,16 +1,78 @@
-# Quickwit instance used by acceptance tests (TF_ACC=1).
-# Start: docker compose up -d   Stop: docker compose down -v
+# Services used by the acceptance tests (TF_ACC=1).
+#
+#   docker compose up -d                     # Quickwit only
+#   docker compose --profile sources up -d   # + Kafka and LocalStack (SQS, Kinesis)
+#   docker compose --profile sources down -v
+#
+# Host ports can be changed with QUICKWIT_PORT, KAFKA_PORT and LOCALSTACK_PORT.
 services:
   quickwit:
     image: quickwit/quickwit:${QUICKWIT_VERSION:-edge}
     command: run
     ports:
-      - "7280:7280"
-      - "7281:7281"
+      - "${QUICKWIT_PORT:-7280}:7280"
     environment:
       QW_DISABLE_TELEMETRY: "1"
+      # Dummy credentials so that Quickwit can reach SQS and Kinesis on LocalStack.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
     volumes:
       - quickwit-data:/quickwit/qwdata
+
+  # Quickwit reaches it at kafka:29092, the host at localhost:${KAFKA_PORT}.
+  kafka:
+    image: confluentinc/confluent-local:${CP_VERSION:-7.4.11}
+    profiles: [sources]
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: kafka-topics --bootstrap-server kafka:29092 --list
+      interval: 5s
+      retries: 30
+
+  # Topics used by the Kafka acceptance tests.
+  kafka-setup:
+    image: confluentinc/confluent-local:${CP_VERSION:-7.4.11}
+    profiles: [sources]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for t in tf-acc-1 tf-acc-2; do
+          kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic $$t --partitions 2
+        done
+
+  # Quickwit reaches it at localstack:4566. The init script creates the SQS
+  # queue and Kinesis stream used by the acceptance tests.
+  localstack:
+    image: localstack/localstack:${LOCALSTACK_VERSION:-3.5.0}
+    profiles: [sources]
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: sqs,kinesis
+      SQS_ENDPOINT_STRATEGY: path
+    volumes:
+      - ./testdata/localstack:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      test: test -f /tmp/tf-acc-ready
+      interval: 5s
+      retries: 30
 
 volumes:
   quickwit-data:

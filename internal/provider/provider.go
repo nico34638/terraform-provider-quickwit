@@ -108,7 +108,7 @@ func (p *quickwitProvider) Configure(ctx context.Context, req provider.Configure
 }
 
 func (p *quickwitProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{NewIndexResource}
+	return append([]func() resource.Resource{NewIndexResource}, sourceResources()...)
 }
 
 func (p *quickwitProvider) DataSources(context.Context) []func() datasource.DataSource {

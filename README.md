@@ -15,6 +15,21 @@ TF_ACC=1 go test ./...     # + round-trip and acceptance tests against the local
 docker compose down -v
 ```
 
+Kafka, SQS and Kinesis sources are only tested against real brokers, since
+Quickwit checks a source's connectivity before saving it. The `sources`
+profile starts Kafka and LocalStack with the topics, queue and stream the tests
+expect:
+
+```bash
+docker compose --profile sources up -d --wait
+QUICKWIT_TEST_SOURCES=1 TF_ACC=1 go test ./...
+docker compose --profile sources down -v
+```
+
+Ports can be moved with `QUICKWIT_PORT`, `KAFKA_PORT` and `LOCALSTACK_PORT`
+(then point `QUICKWIT_ENDPOINT` at the new Quickwit port). Pulsar has no test
+broker: its resource is covered by plan-time and unit tests only.
+
 Try the provider locally with a `dev_overrides` CLI config pointing at the
 directory of a `go build` binary, then run `tofu apply` in `examples/logs`.
 
