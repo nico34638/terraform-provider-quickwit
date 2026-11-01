@@ -18,15 +18,15 @@ import (
 
 // IndexModel is exported so that the data source model can embed it.
 type IndexModel struct {
-	ID               types.String `tfsdk:"id"`
-	IndexID          types.String `tfsdk:"index_id"`
-	IndexURI         types.String `tfsdk:"index_uri"`
-	IndexUID         types.String `tfsdk:"index_uid"`
-	DocMapping       types.Object `tfsdk:"doc_mapping"`
-	IndexingSettings types.Object `tfsdk:"indexing_settings"`
-	IngestSettings   types.Object `tfsdk:"ingest_settings"`
-	SearchSettings   types.Object `tfsdk:"search_settings"`
-	Retention        types.Object `tfsdk:"retention"`
+	ID               types.String    `tfsdk:"id"`
+	IndexID          types.String    `tfsdk:"index_id"`
+	IndexURI         normalizedValue `tfsdk:"index_uri"`
+	IndexUID         types.String    `tfsdk:"index_uid"`
+	DocMapping       types.Object    `tfsdk:"doc_mapping"`
+	IndexingSettings types.Object    `tfsdk:"indexing_settings"`
+	IngestSettings   types.Object    `tfsdk:"ingest_settings"`
+	SearchSettings   types.Object    `tfsdk:"search_settings"`
+	Retention        types.Object    `tfsdk:"retention"`
 }
 
 type docMappingModel struct {
@@ -278,7 +278,7 @@ func fromAPI(ctx context.Context, meta *client.IndexMetadata, prior IndexModel, 
 	out = IndexModel{
 		ID:       types.StringValue(cfg.IndexID),
 		IndexID:  types.StringValue(cfg.IndexID),
-		IndexURI: types.StringValue(cfg.IndexURI),
+		IndexURI: newNormalized(kindIndexURI, cfg.IndexURI),
 		IndexUID: types.StringValue(meta.IndexUID),
 	}
 

@@ -91,9 +91,15 @@ func indexSchema() schema.Schema {
 					"must start with a letter and contain only letters, digits, `-`, `_` and `.` (3 to 255 characters)")},
 			},
 			"index_uri": schema.StringAttribute{
-				Optional: true, Computed: true,
-				MarkdownDescription: "Storage URI of the index (`s3://bucket/indexes/foo`). Defaults to the node's `default_index_root_uri` joined with `index_id`. Changing it recreates the index.",
-				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown(), stringplanmodifier.RequiresReplace()},
+				Optional: true, Computed: true, CustomType: indexURIType,
+				MarkdownDescription: "Storage URI of the index (`s3://bucket/indexes/foo`, `file:///var/lib/quickwit/indexes/foo`). " +
+					"Defaults to the node's `default_index_root_uri` joined with `index_id`. File paths must be absolute. " +
+					"Compared semantically: `file:///a/b/` and `file:///a/b` are the same URI. Changing it recreates the index.",
+				PlanModifiers: []planmodifier.String{
+					useStateWhenEquivalent{kind: kindIndexURI}, // before RequiresReplace: no replacement for an equivalent URI
+					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"index_uid": schema.StringAttribute{
 				Computed: true, MarkdownDescription: "Index UID (`index_id:ulid`), new for each incarnation of the index.",
