@@ -34,7 +34,13 @@ func ParseByteSize(s string) (uint64, error) {
 	if mult == 0 {
 		return 0, fmt.Errorf("invalid byte size %q: unknown unit %q", s, unit)
 	}
-	return uint64(math.Round(v * mult)), nil
+	// Converting a float64 outside the uint64 range is implementation-defined
+	// in Go: reject it instead of returning a garbage size.
+	n := math.Round(v * mult)
+	if n >= math.MaxUint64 { // float64(MaxUint64) rounds up to 2^64
+		return 0, fmt.Errorf("invalid byte size %q: too large", s)
+	}
+	return uint64(n), nil
 }
 
 // durationUnits are the units of humantime 2.4 (the version Quickwit 0.9

@@ -148,6 +148,15 @@ func TestUnits(t *testing.T) {
 			t.Errorf("ParseByteSize(%q) = %d, %v; want %d", in, got, err, want)
 		}
 	}
+	// Beyond the uint64 range: an error, not a wrapped or saturated value.
+	for _, in := range []string{"99999PB", "18446744073709551616", "1e30", "", "GB", "-1GB", "2XB"} {
+		if got, err := ParseByteSize(in); err == nil {
+			t.Errorf("ParseByteSize(%q) = %d, want an error", in, got)
+		}
+	}
+	if got, err := ParseByteSize("16384PiB"); err == nil {
+		t.Errorf("ParseByteSize(16384PiB) = %d, want an error (2^64)", got)
+	}
 	for in, want := range map[string]time.Duration{"2days": 48 * time.Hour, "1day 12h": 36 * time.Hour, "48h": 48 * time.Hour, "1h 30min": 90 * time.Minute, "7 days": 7 * 24 * time.Hour} {
 		got, err := ParseHumanDuration(in)
 		if err != nil || got != want {
