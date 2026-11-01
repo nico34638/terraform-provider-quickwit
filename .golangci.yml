@@ -1,0 +1,7 @@
+# golangci-lint v2. Default linters (standard set), plus formatting checks:
+# `golangci-lint run` fails on code that is not gofmt-ed.
+version: "2"
+
+formatters:
+  enable:
+    - gofmt

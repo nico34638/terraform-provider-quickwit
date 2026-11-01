@@ -17,19 +17,19 @@ func TestValidateRetentionSchedule_cron(t *testing.T) {
 	}
 	for _, s := range []string{
 		"", "@", "Hourly", "annually", "@hourly x",
-		"0 0 * * *",         // 5 fields: cron 0.17 requires seconds
-		"* * * * * * * *",   // 8 fields
-		"0 0 24 * * *",      // hour out of range
-		"60 * * * * *",      // second out of range
-		"0 0 0 * * 0",       // days of week are 1-7
-		"0 0 0 1 1 ? 2101",  // year out of range
-		"0 0 0 5-1 * *",     // decreasing range
-		"0 */60 * * * *",    // step larger than the field
-		"0 0 0 L * *",       // unsupported syntax
-		"? 0 0 * * *",       // `?` only for days
-		"0 0 0 1 foo *",     // unknown month
-		"0 0 0 * * 0/0",     // zero step
-		"jan 0 0 * * *",     // names only for months and days of week
+		"0 0 * * *",        // 5 fields: cron 0.17 requires seconds
+		"* * * * * * * *",  // 8 fields
+		"0 0 24 * * *",     // hour out of range
+		"60 * * * * *",     // second out of range
+		"0 0 0 * * 0",      // days of week are 1-7
+		"0 0 0 1 1 ? 2101", // year out of range
+		"0 0 0 5-1 * *",    // decreasing range
+		"0 */60 * * * *",   // step larger than the field
+		"0 0 0 L * *",      // unsupported syntax
+		"? 0 0 * * *",      // `?` only for days
+		"0 0 0 1 foo *",    // unknown month
+		"0 0 0 * * 0/0",    // zero step
+		"jan 0 0 * * *",    // names only for months and days of week
 	} {
 		if err := ValidateRetentionSchedule(s); err == nil {
 			t.Errorf("ValidateRetentionSchedule(%q) = nil, want an error", s)
