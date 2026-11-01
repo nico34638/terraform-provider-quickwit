@@ -50,6 +50,7 @@ Design and API facts: `docs/PLAN.md`.
 
 ```bash
 go build ./... && golangci-lint run && go test ./...
+go tool govulncheck ./...                         # known CVEs (CI: weekly too)
 TF_ACC=1 go test ./... -count=1                  # needs Quickwit
 TF_ACC=1 QUICKWIT_TEST_SOURCES=1 go test ./...   # + Kafka/SQS/Kinesis (--profile sources)
 go generate ./...                                # docs: CI fails if docs/ is stale
