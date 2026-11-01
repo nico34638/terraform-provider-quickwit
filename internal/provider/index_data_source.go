@@ -100,18 +100,13 @@ func computedAttributes(in map[string]rschema.Attribute) map[string]dschema.Attr
 }
 
 func (d *indexDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	c, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("expected *client.Client, got %T", req.ProviderData))
-		return
-	}
-	d.client = c
+	d.client = clientFromProviderData(req.ProviderData, &resp.Diagnostics)
 }
 
 func (d *indexDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	if !configured(d.client, &resp.Diagnostics) {
+		return
+	}
 	var indexID types.String
 	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("index_id"), &indexID)...)
 	if resp.Diagnostics.HasError() {

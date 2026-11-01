@@ -161,15 +161,7 @@ func (r *sourceResource[T, M]) Schema(_ context.Context, _ resource.SchemaReques
 }
 
 func (r *sourceResource[T, M]) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	c, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("expected *client.Client, got %T", req.ProviderData))
-		return
-	}
-	r.client = c
+	r.client = clientFromProviderData(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *sourceResource[T, M]) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
@@ -236,6 +228,9 @@ func (r *sourceResource[T, M]) fromAPI(ctx context.Context, indexID string, src 
 }
 
 func (r *sourceResource[T, M]) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	m := M(new(T))
 	resp.Diagnostics.Append(req.Plan.Get(ctx, m)...)
 	if resp.Diagnostics.HasError() {
@@ -257,6 +252,9 @@ func (r *sourceResource[T, M]) Create(ctx context.Context, req resource.CreateRe
 }
 
 func (r *sourceResource[T, M]) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	m := M(new(T))
 	resp.Diagnostics.Append(req.State.Get(ctx, m)...)
 	if resp.Diagnostics.HasError() {
@@ -277,6 +275,9 @@ func (r *sourceResource[T, M]) Read(ctx context.Context, req resource.ReadReques
 }
 
 func (r *sourceResource[T, M]) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	m := M(new(T))
 	resp.Diagnostics.Append(req.Plan.Get(ctx, m)...)
 	if resp.Diagnostics.HasError() {
@@ -298,6 +299,9 @@ func (r *sourceResource[T, M]) Update(ctx context.Context, req resource.UpdateRe
 }
 
 func (r *sourceResource[T, M]) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	m := M(new(T))
 	resp.Diagnostics.Append(req.State.Get(ctx, m)...)
 	if resp.Diagnostics.HasError() {
