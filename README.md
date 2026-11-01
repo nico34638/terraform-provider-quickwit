@@ -30,6 +30,27 @@ Ports can be moved with `QUICKWIT_PORT`, `KAFKA_PORT` and `LOCALSTACK_PORT`
 (then point `QUICKWIT_ENDPOINT` at the new Quickwit port). Pulsar has no test
 broker: its resource is covered by plan-time and unit tests only.
 
+## End-to-end test on a real cluster
+
+`e2e/run.sh` builds the provider and applies `e2e/main.tf` to a running
+cluster: it creates two indexes (every field type, a custom tokenizer,
+settings, retention) and a Pub/Sub source, checks that a second plan is empty,
+updates everything in place, imports it back, then destroys it. Each step is
+checked through the Quickwit API. Objects are named `tfe2e-<random>-…` and are
+destroyed even when a step fails.
+
+```bash
+QUICKWIT_ENDPOINT=https://quickwit.example.com \
+E2E_HEADERS='{"Authorization": "Bearer …"}' \
+  e2e/run.sh
+```
+
+Kafka, SQS and Kinesis sources are added when `E2E_KAFKA_BOOTSTRAP` +
+`E2E_KAFKA_TOPIC`, `E2E_SQS_QUEUE_URL` or `E2E_KINESIS_STREAM` (+
+`E2E_KINESIS_REGION` or `E2E_KINESIS_ENDPOINT`) are set, with addresses as
+seen by Quickwit. Sources are created disabled unless `E2E_SOURCES_ENABLED=1`.
+`E2E_KEEP=1` keeps the objects. See the header of the script for every option.
+
 Try the provider locally with a `dev_overrides` CLI config pointing at the
 directory of a `go build` binary, then run `tofu apply` in `examples/logs`.
 
