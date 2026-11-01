@@ -15,7 +15,7 @@ Ce pattern ne se transpose pas tel quel à Quickwit :
 
 ## Décisions de setup
 - Repo : `/home/nuco/dev/go/terraform-provider-quickwit`, module `github.com/nico34638/terraform-provider-quickwit` (migration vers une org plus tard).
-- Dev : `nix develop` (go, opentofu via `TF_ACC_TERRAFORM_PATH`, golangci-lint) + `docker compose up -d` (Quickwit `edge` sur :7280).
+- Dev : `nix develop` (go, opentofu via `TF_ACC_TERRAFORM_PATH`, golangci-lint) + `docker compose up -d` (Quickwit `0.9.3` sur :7280).
 
 ## Faits API utilisés (source : ce repo)
 - Routes : `quickwit-serve/src/index_api/index_resource.rs` et `source_resource.rs`.
@@ -107,7 +107,7 @@ terraform-provider-quickwit/
   examples/ docs/ (tfplugindocs)
   e2e/                    # main.tf + run.sh : test de bout en bout sur un vrai cluster
   testdata/localstack/    # init SQS/Kinesis pour les tests d'acceptance
-  docker-compose.yml      # quickwit/quickwit:edge ; profil `sources` : Kafka + LocalStack
+  docker-compose.yml      # quickwit/quickwit:0.9.3 ; profil `sources` : Kafka + LocalStack
 ```
 
 ## Vérification
