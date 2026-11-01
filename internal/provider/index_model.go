@@ -16,7 +16,8 @@ import (
 	"github.com/nico34638/terraform-provider-quickwit/internal/mapping"
 )
 
-type indexModel struct {
+// IndexModel is exported so that the data source model can embed it.
+type IndexModel struct {
 	ID               types.String `tfsdk:"id"`
 	IndexID          types.String `tfsdk:"index_id"`
 	IndexURI         types.String `tfsdk:"index_uri"`
@@ -175,7 +176,7 @@ type apiRetention struct {
 // toAPI builds the full index config from a plan. doc_mapping_uid is never
 // sent: Quickwit keeps the current one when the mapping is unchanged and
 // generates a new one otherwise.
-func toAPI(ctx context.Context, m indexModel) (*apiIndexConfig, diag.Diagnostics) {
+func toAPI(ctx context.Context, m IndexModel) (*apiIndexConfig, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	cfg := &apiIndexConfig{Version: "0.9", IndexID: m.IndexID.ValueString()}
 	if !m.IndexURI.IsNull() && !m.IndexURI.IsUnknown() {
@@ -266,14 +267,15 @@ func rawList(ctx context.Context, l types.List, diags *diag.Diagnostics) []json.
 // fromAPI converts the server's index metadata to a state model. prior is the
 // plan (after create/update) or the current state (read); it decides whether
 // optional attributes the user left unset stay null when the server reports
-// their default value.
-func fromAPI(ctx context.Context, meta *client.IndexMetadata, prior indexModel) (out indexModel, diags diag.Diagnostics) {
+// their default value. With explicit, every value is reported, defaults
+// included (data source).
+func fromAPI(ctx context.Context, meta *client.IndexMetadata, prior IndexModel, explicit bool) (out IndexModel, diags diag.Diagnostics) {
 	var cfg apiIndexConfig
 	if err := json.Unmarshal(meta.IndexConfig, &cfg); err != nil {
 		diags.AddError("Unexpected index config", fmt.Sprintf("decoding index_config: %s", err))
-		return indexModel{}, diags
+		return IndexModel{}, diags
 	}
-	out = indexModel{
+	out = IndexModel{
 		ID:       types.StringValue(cfg.IndexID),
 		IndexID:  types.StringValue(cfg.IndexID),
 		IndexURI: types.StringValue(cfg.IndexURI),
@@ -306,7 +308,7 @@ func fromAPI(ctx context.Context, meta *client.IndexMetadata, prior indexModel) 
 			diags.AddError("Unexpected dynamic_mapping", err.Error())
 		}
 		canon, _ := mapping.CanonicalizeDynamicMapping(s)
-		if !priorDM.DynamicMapping.IsNull() || canon != mapping.DefaultDynamicMapping() {
+		if explicit || !priorDM.DynamicMapping.IsNull() || canon != mapping.DefaultDynamicMapping() {
 			dmModel.DynamicMapping = newNormalized(kindDynamicMapping, s)
 		}
 	}
@@ -335,7 +337,7 @@ func fromAPI(ctx context.Context, meta *client.IndexMetadata, prior indexModel) 
 	if err != nil {
 		diags.AddError("Unexpected heap_size", err.Error())
 	}
-	mp := flattenMergePolicy(is.MergePolicy, priorMP, &diags)
+	mp := flattenMergePolicy(is.MergePolicy, priorMP, explicit, &diags)
 	mpObj, d := types.ObjectValueFrom(ctx, objTypes.mergePolicy, mp)
 	diags.Append(d...)
 	out.IndexingSettings, d = types.ObjectValueFrom(ctx, objTypes.indexing, indexingSettingsModel{
@@ -398,7 +400,7 @@ func normalizedList(t normalizedType, raws []json.RawMessage, diags *diag.Diagno
 
 // flattenMergePolicy keeps an option null when the user did not set it and
 // the server reports the policy's default for it.
-func flattenMergePolicy(api map[string]any, prior mergePolicyModel, diags *diag.Diagnostics) mergePolicyModel {
+func flattenMergePolicy(api map[string]any, prior mergePolicyModel, explicit bool, diags *diag.Diagnostics) mergePolicyModel {
 	typ, _ := api["type"].(string)
 	defaults := mergePolicyDefaults[typ]
 	out := mergePolicyModel{Type: types.StringValue(typ), MaturationPeriod: newNormalizedNull(kindDuration)}
@@ -415,7 +417,7 @@ func flattenMergePolicy(api map[string]any, prior mergePolicyModel, diags *diag.
 			continue
 		}
 		n := int64(f)
-		if priorInts[k].IsNull() && defaults[k] == n {
+		if !explicit && priorInts[k].IsNull() && defaults[k] == n {
 			continue
 		}
 		*dst = types.Int64Value(n)
@@ -423,7 +425,7 @@ func flattenMergePolicy(api map[string]any, prior mergePolicyModel, diags *diag.
 	if v, ok := api["maturation_period"].(string); ok {
 		d1, _ := mapping.ParseHumanDuration(v)
 		d2, _ := mapping.ParseHumanDuration(defaults["maturation_period"].(string))
-		if !prior.MaturationPeriod.IsNull() || d1 != d2 {
+		if explicit || !prior.MaturationPeriod.IsNull() || d1 != d2 {
 			out.MaturationPeriod = newNormalized(kindDuration, v)
 		}
 	}

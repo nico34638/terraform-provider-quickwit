@@ -112,5 +112,5 @@ func (p *quickwitProvider) Resources(context.Context) []func() resource.Resource
 }
 
 func (p *quickwitProvider) DataSources(context.Context) []func() datasource.DataSource {
-	return fieldDataSources()
+	return append([]func() datasource.DataSource{NewIndexDataSource}, fieldDataSources()...)
 }

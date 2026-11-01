@@ -49,7 +49,7 @@ func (r *indexResource) Configure(_ context.Context, req resource.ConfigureReque
 }
 
 func (r *indexResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan indexModel
+	var plan IndexModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -64,13 +64,13 @@ func (r *indexResource) Create(ctx context.Context, req resource.CreateRequest, 
 		resp.Diagnostics.AddError("Failed to create index "+cfg.IndexID, err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, meta, plan)
+	state, diags := fromAPI(ctx, meta, plan, false)
 	resp.Diagnostics.Append(diags...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *indexResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var prior indexModel
+	var prior IndexModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -84,13 +84,13 @@ func (r *indexResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		resp.Diagnostics.AddError("Failed to read index "+prior.IndexID.ValueString(), err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, meta, prior)
+	state, diags := fromAPI(ctx, meta, prior, false)
 	resp.Diagnostics.Append(diags...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *indexResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan indexModel
+	var plan IndexModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -105,13 +105,13 @@ func (r *indexResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		resp.Diagnostics.AddError("Failed to update index "+cfg.IndexID, err.Error())
 		return
 	}
-	state, diags := fromAPI(ctx, meta, plan)
+	state, diags := fromAPI(ctx, meta, plan, false)
 	resp.Diagnostics.Append(diags...)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *indexResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state indexModel
+	var state IndexModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -133,7 +133,7 @@ func (r *indexResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	if req.Plan.Raw.IsNull() {
 		return // destroy
 	}
-	var plan indexModel
+	var plan IndexModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() || plan.DocMapping.IsUnknown() {
 		return
@@ -155,7 +155,7 @@ func (r *indexResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanR
 	if req.State.Raw.IsNull() {
 		return // create
 	}
-	var state indexModel
+	var state IndexModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
