@@ -18,6 +18,35 @@ func newTestClient(t *testing.T, endpoint string, cfg Config) *Client {
 	return c
 }
 
+func TestUserAgentAndHeaders(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		_, _ = w.Write([]byte(`{"index_uid": "x:1", "index_config": {}}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv.URL, Config{UserAgent: "Terraform/1.13 terraform-provider-quickwit/test", Headers: map[string]string{"X-Token": "secret"}})
+	if _, err := c.GetIndex(context.Background(), "x"); err != nil {
+		t.Fatal(err)
+	}
+	if ua := got.Get("User-Agent"); ua != "Terraform/1.13 terraform-provider-quickwit/test" {
+		t.Errorf("User-Agent = %q", ua)
+	}
+	if v := got.Get("X-Token"); v != "secret" {
+		t.Errorf("X-Token = %q", v)
+	}
+
+	// User headers take precedence.
+	c = newTestClient(t, srv.URL, Config{UserAgent: "default", Headers: map[string]string{"User-Agent": "custom"}})
+	if _, err := c.GetIndex(context.Background(), "x"); err != nil {
+		t.Fatal(err)
+	}
+	if ua := got.Get("User-Agent"); ua != "custom" {
+		t.Errorf("User-Agent = %q, want the header from the configuration", ua)
+	}
+}
+
 func TestAPIErrors(t *testing.T) {
 	cases := map[string]struct {
 		status int

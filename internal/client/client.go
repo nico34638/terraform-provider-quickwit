@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 const (
@@ -26,15 +28,18 @@ const (
 )
 
 type Client struct {
-	baseURL *url.URL
-	headers map[string]string
-	http    *http.Client
+	baseURL   *url.URL
+	headers   map[string]string
+	userAgent string
+	http      *http.Client
 }
 
 type Config struct {
 	Endpoint string
 	Headers  map[string]string
 	Timeout  time.Duration
+	// UserAgent is sent with every request; Headers can override it.
+	UserAgent string
 }
 
 func New(cfg Config) (*Client, error) {
@@ -45,7 +50,7 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
 	}
-	return &Client{baseURL: u, headers: cfg.Headers, http: &http.Client{Timeout: cfg.Timeout}}, nil
+	return &Client{baseURL: u, headers: cfg.Headers, userAgent: cfg.UserAgent, http: &http.Client{Timeout: cfg.Timeout}}, nil
 }
 
 // Endpoint is the base URL, with any password redacted.
@@ -76,7 +81,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		reqBody = bytes.NewReader(b)
 	}
 	u := c.baseURL.JoinPath("api", "v1", path)
-	// Error messages never show the password of the endpoint URL.
+	// Error messages and logs never show the password of the endpoint URL.
 	target := method + " " + u.Redacted()
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), reqBody)
 	if err != nil {
@@ -86,19 +91,33 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
+	}
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
 	}
+
+	// Header values and bodies are never logged: they hold credentials
+	// (proxy tokens, Kafka passwords, Pulsar tokens...).
+	fields := map[string]any{"method": method, "url": u.Redacted()}
+	tflog.Debug(ctx, "Quickwit API request", fields)
+	start := time.Now()
 	resp, err := c.http.Do(req)
+	fields["duration_ms"] = time.Since(start).Milliseconds()
 	if err != nil {
 		// *url.Error repeats the method and URL: keep only the cause.
 		var uerr *url.Error
 		if errors.As(err, &uerr) {
 			err = uerr.Err
 		}
+		fields["error"] = err.Error()
+		tflog.Debug(ctx, "Quickwit API request failed", fields)
 		return fmt.Errorf("%s: %w", target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	fields["status"] = resp.StatusCode
+	tflog.Debug(ctx, "Quickwit API response", fields)
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 	if err != nil {
