@@ -37,18 +37,13 @@ func (r *indexResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 }
 
 func (r *indexResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	c, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("expected *client.Client, got %T", req.ProviderData))
-		return
-	}
-	r.client = c
+	r.client = clientFromProviderData(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *indexResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	var plan IndexModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
@@ -70,6 +65,9 @@ func (r *indexResource) Create(ctx context.Context, req resource.CreateRequest, 
 }
 
 func (r *indexResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	var prior IndexModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
@@ -90,6 +88,9 @@ func (r *indexResource) Read(ctx context.Context, req resource.ReadRequest, resp
 }
 
 func (r *indexResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	var plan IndexModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
@@ -111,6 +112,9 @@ func (r *indexResource) Update(ctx context.Context, req resource.UpdateRequest, 
 }
 
 func (r *indexResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	if !configured(r.client, &resp.Diagnostics) {
+		return
+	}
 	var state IndexModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {

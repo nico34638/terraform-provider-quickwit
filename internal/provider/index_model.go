@@ -423,9 +423,15 @@ func flattenMergePolicy(api map[string]any, prior mergePolicyModel, explicit boo
 		*dst = types.Int64Value(n)
 	}
 	if v, ok := api["maturation_period"].(string); ok {
-		d1, _ := mapping.ParseHumanDuration(v)
-		d2, _ := mapping.ParseHumanDuration(defaults["maturation_period"].(string))
-		if explicit || !prior.MaturationPeriod.IsNull() || d1 != d2 {
+		// A policy without a default (no_merge, or a type unknown to this
+		// provider) always reports the value it got.
+		isDefault := false
+		if def, ok := defaults["maturation_period"].(string); ok {
+			d1, err1 := mapping.ParseHumanDuration(v)
+			d2, err2 := mapping.ParseHumanDuration(def)
+			isDefault = err1 == nil && err2 == nil && d1 == d2
+		}
+		if explicit || !prior.MaturationPeriod.IsNull() || !isDefault {
 			out.MaturationPeriod = newNormalized(kindDuration, v)
 		}
 	}

@@ -2,15 +2,18 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"github.com/nico34638/terraform-provider-quickwit/internal/client"
 )
@@ -70,8 +73,10 @@ func (p *quickwitProvider) Configure(ctx context.Context, req provider.Configure
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if cfg.Endpoint.IsUnknown() || cfg.Headers.IsUnknown() || cfg.Timeout.IsUnknown() {
-		// Values come from resources not created yet; configure on apply.
+	if cfg.Endpoint.IsUnknown() || cfg.Timeout.IsUnknown() || hasUnknownElement(cfg.Headers) {
+		// Values come from resources not created yet: no client until apply.
+		// Resources and data sources report it if they need one (configured).
+		tflog.Debug(ctx, "Quickwit provider configuration not known yet, client not configured")
 		return
 	}
 
@@ -90,21 +95,78 @@ func (p *quickwitProvider) Configure(ctx context.Context, req provider.Configure
 	if !cfg.Timeout.IsNull() {
 		d, err := time.ParseDuration(cfg.Timeout.ValueString())
 		if err != nil || d <= 0 {
-			resp.Diagnostics.AddAttributeError(path.Root("timeout"), "Invalid timeout", "expected a positive Go duration such as `30s`")
+			resp.Diagnostics.AddAttributeError(path.Root("timeout"), "Invalid timeout",
+				fmt.Sprintf("expected a positive Go duration such as `30s`, got %q", cfg.Timeout.ValueString()))
+		} else {
+			timeout = d
 		}
-		timeout = d
 	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	c, err := client.New(client.Config{Endpoint: endpoint, Headers: headers, Timeout: timeout})
+	c, err := client.New(client.Config{
+		Endpoint: endpoint, Headers: headers, Timeout: timeout,
+		UserAgent: userAgent(req.TerraformVersion, p.version),
+	})
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Invalid endpoint", err.Error())
 		return
 	}
+	tflog.Debug(ctx, "Quickwit client configured", map[string]any{
+		"endpoint": c.Endpoint(), "timeout": timeout.String(), "header_names": sortedKeys(headers),
+	})
 	resp.ResourceData = c
 	resp.DataSourceData = c
+}
+
+// userAgent follows the convention of HashiCorp providers.
+func userAgent(terraformVersion, providerVersion string) string {
+	if terraformVersion == "" {
+		terraformVersion = "unknown"
+	}
+	return fmt.Sprintf("Terraform/%s (+https://www.terraform.io) terraform-provider-quickwit/%s", terraformVersion, providerVersion)
+}
+
+func hasUnknownElement(m types.Map) bool {
+	if m.IsUnknown() {
+		return true
+	}
+	for _, v := range m.Elements() {
+		if v.IsUnknown() {
+			return true
+		}
+	}
+	return false
+}
+
+// clientFromProviderData is shared by the Configure methods of resources and
+// data sources. ProviderData is nil before the provider is configured, and
+// stays nil when its configuration is not known yet.
+func clientFromProviderData(data any, diags *diag.Diagnostics) *client.Client {
+	if data == nil {
+		return nil
+	}
+	c, ok := data.(*client.Client)
+	if !ok {
+		diags.AddError("Unexpected provider data",
+			fmt.Sprintf("expected *client.Client, got %T. This is a bug in the provider, please report it.", data))
+	}
+	return c
+}
+
+// configured reports an error when c is nil, i.e. when the provider
+// configuration depends on values only known after apply. Every method that
+// calls Quickwit checks it first.
+func configured(c *client.Client, diags *diag.Diagnostics) bool {
+	if c != nil {
+		return true
+	}
+	diags.AddError("Quickwit provider not configured",
+		"The quickwit provider configuration (endpoint, headers or timeout) depends on values that are not known yet, "+
+			"such as attributes of resources not created yet. Create those first (e.g. `terraform apply -target=...`), "+
+			"or configure the provider with values known at plan time.")
+	return false
 }
 
 func (p *quickwitProvider) Resources(context.Context) []func() resource.Resource {

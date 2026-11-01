@@ -144,7 +144,7 @@ Required:
 Optional:
 
 - `evaluation_schedule_jitter` (String) Maximum random delay added to each evaluation, e.g. `10min`.
-- `schedule` (String) When the policy is evaluated: `hourly`, `daily`, `weekly`, `monthly` or a cron expression. Defaults to `hourly`.
+- `schedule` (String) When the policy is evaluated: `hourly`, `daily`, `weekly`, `monthly`, `yearly` or a cron expression with seconds (`0 0 3 * * *`: every day at 03:00). Defaults to `hourly`.
 
 
 <a id="nestedatt--search_settings"></a>

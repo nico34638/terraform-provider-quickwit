@@ -14,18 +14,32 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+)
+
+const (
+	// maxResponseSize bounds the responses read in memory; index metadata is
+	// a few hundred KB at most.
+	maxResponseSize = 16 << 20
+	// maxErrorMessage truncates error bodies that are not Quickwit JSON
+	// errors (e.g. an HTML page from a reverse proxy).
+	maxErrorMessage = 512
 )
 
 type Client struct {
-	baseURL *url.URL
-	headers map[string]string
-	http    *http.Client
+	baseURL   *url.URL
+	headers   map[string]string
+	userAgent string
+	http      *http.Client
 }
 
 type Config struct {
 	Endpoint string
 	Headers  map[string]string
 	Timeout  time.Duration
+	// UserAgent is sent with every request; Headers can override it.
+	UserAgent string
 }
 
 func New(cfg Config) (*Client, error) {
@@ -36,8 +50,11 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
 	}
-	return &Client{baseURL: u, headers: cfg.Headers, http: &http.Client{Timeout: cfg.Timeout}}, nil
+	return &Client{baseURL: u, headers: cfg.Headers, userAgent: cfg.UserAgent, http: &http.Client{Timeout: cfg.Timeout}}, nil
 }
+
+// Endpoint is the base URL, with any password redacted.
+func (c *Client) Endpoint() string { return c.baseURL.Redacted() }
 
 // APIError is a non-2xx response. Quickwit returns {"message": "..."}.
 type APIError struct {
@@ -59,46 +76,84 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return fmt.Errorf("encoding request: %w", err)
 		}
 		reqBody = bytes.NewReader(b)
 	}
 	u := c.baseURL.JoinPath("api", "v1", path)
+	// Error messages and logs never show the password of the endpoint URL.
+	target := method + " " + u.Redacted()
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), reqBody)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", target, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
+	}
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
 	}
+
+	// Header values and bodies are never logged: they hold credentials
+	// (proxy tokens, Kafka passwords, Pulsar tokens...).
+	fields := map[string]any{"method": method, "url": u.Redacted()}
+	tflog.Debug(ctx, "Quickwit API request", fields)
+	start := time.Now()
 	resp, err := c.http.Do(req)
+	fields["duration_ms"] = time.Since(start).Milliseconds()
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", method, u, err)
+		// *url.Error repeats the method and URL: keep only the cause.
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
+		fields["error"] = err.Error()
+		tflog.Debug(ctx, "Quickwit API request failed", fields)
+		return fmt.Errorf("%s: %w", target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	respBody, err := io.ReadAll(resp.Body)
+	fields["status"] = resp.StatusCode
+	tflog.Debug(ctx, "Quickwit API response", fields)
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 	if err != nil {
-		return fmt.Errorf("%s %s: reading response: %w", method, u, err)
+		return fmt.Errorf("%s: reading response: %w", target, err)
+	}
+	if len(respBody) > maxResponseSize {
+		return fmt.Errorf("%s: response larger than %d bytes", target, maxResponseSize)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		var e struct {
-			Message string `json:"message"`
-		}
-		if json.Unmarshal(respBody, &e) != nil || e.Message == "" {
-			e.Message = strings.TrimSpace(string(respBody))
-		}
-		return &APIError{StatusCode: resp.StatusCode, Message: e.Message}
+		return &APIError{StatusCode: resp.StatusCode, Message: errorMessage(resp.StatusCode, respBody)}
 	}
 	if out != nil {
 		if err := json.Unmarshal(respBody, out); err != nil {
-			return fmt.Errorf("%s %s: decoding response: %w", method, u, err)
+			return fmt.Errorf("%s: decoding response: %w", target, err)
 		}
 	}
 	return nil
+}
+
+// errorMessage extracts Quickwit's {"message": "..."}; other bodies (proxy
+// error pages...) are truncated, empty ones replaced by the status text.
+func errorMessage(status int, body []byte) string {
+	var e struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &e) == nil && e.Message != "" {
+		return e.Message
+	}
+	msg := strings.TrimSpace(string(body))
+	if msg == "" {
+		return http.StatusText(status)
+	}
+	if len(msg) > maxErrorMessage {
+		msg = strings.ToValidUTF8(msg[:maxErrorMessage], "") + "… (truncated)"
+	}
+	return msg
 }
 
 // IndexMetadata is the subset of VersionedIndexMetadata the provider uses.
