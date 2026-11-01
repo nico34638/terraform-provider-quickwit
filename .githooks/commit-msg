@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Enabled with: git config core.hooksPath .githooks (done by `nix develop`).
+exec "$(dirname "$0")/check-commit-msg.sh" --file "$1"

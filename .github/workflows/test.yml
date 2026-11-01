@@ -9,6 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  commits:
+    name: Conventional commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check commit subjects
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # New branch or force-push: nothing reliable to compare against.
+          if [[ -z $BASE || $BASE == 0000000000000000000000000000000000000000 ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "no base commit, skipping"; exit 0
+          fi
+          .githooks/check-commit-msg.sh "$BASE..$HEAD"
+
   unit:
     name: Build, lint, unit tests
     runs-on: ubuntu-latest

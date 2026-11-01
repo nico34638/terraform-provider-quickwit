@@ -21,12 +21,15 @@
             sox
             cargo
             protobuf
+            gnupg
           ];
           shellHook = ''
             # terraform-plugin-testing drives acceptance tests through this binary.
             export TF_ACC_TERRAFORM_PATH="$(command -v tofu)"
             export TF_ACC_PROVIDER_NAMESPACE="nico34638"
             export QUICKWIT_ENDPOINT="''${QUICKWIT_ENDPOINT:-http://localhost:7280}"
+            # Conventional Commits check on each commit (.githooks/commit-msg).
+            git config core.hooksPath .githooks
           '';
         };
       });

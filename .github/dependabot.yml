@@ -1,0 +1,30 @@
+# Weekly dependency updates. Commit messages follow Conventional Commits
+# ("chore(deps): ..."), so they pass the commit check and stay out of the
+# release notes.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # terraform-plugin-framework, -go, -testing, -docs... move together.
+      terraform-plugin:
+        patterns: ["github.com/hashicorp/terraform-plugin-*"]
+      go-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]
+

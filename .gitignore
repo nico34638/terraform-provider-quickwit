@@ -6,3 +6,4 @@ result
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+release-signing-key.asc
