@@ -279,6 +279,12 @@ data "quickwit_field_bytes" "b" {
   array = true
   fast  = true
 }`, `fast field is not allowed for array<bytes>`},
+		"relative index_uri": {`
+resource "quickwit_index" "test" {
+  index_id    = "` + id + `"
+  index_uri   = "./data/` + id + `"
+  doc_mapping = {}
+}`, `relative path`},
 		"bad index id": {`
 resource "quickwit_index" "test" {
   index_id    = "1x"
@@ -353,4 +359,50 @@ func checkIndexDestroyed(id string) resource.TestCheckFunc {
 		}
 		return fmt.Errorf("index %s still exists", id)
 	}
+}
+
+// TestAccIndex_indexURI: Quickwit stores file URIs cleaned (no `..`, no
+// trailing slash). The state keeps the configured spelling, an equivalent
+// spelling plans nothing (in particular no replacement, which would delete
+// the index), and a different URI still recreates the index.
+func TestAccIndex_indexURI(t *testing.T) {
+	id := randomIndexID()
+	root := "file:///quickwit/qwdata/indexes/"
+	config := func(uri string) string {
+		return `
+resource "quickwit_index" "test" {
+  index_id    = "` + id + `"
+  index_uri   = "` + uri + `"
+  doc_mapping = {}
+}`
+	}
+	var uid string
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviders,
+		CheckDestroy:             checkIndexDestroyed(id),
+		Steps: []resource.TestStep{
+			{
+				Config: config(root + "tmp/../" + id + "/"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("quickwit_index.test", "index_uri", root+"tmp/../"+id+"/"),
+					storeAttr("quickwit_index.test", "index_uid", &uid),
+				),
+			},
+			{
+				Config: config(root + id),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectEmptyPlan(),
+				}},
+				Check: checkAttrEquals("quickwit_index.test", "index_uid", &uid),
+			},
+			{
+				Config: config(root + id + "-moved"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction("quickwit_index.test", plancheck.ResourceActionReplace),
+				}},
+				Check: checkAttrDiffers("quickwit_index.test", "index_uid", &uid),
+			},
+		},
+	})
 }

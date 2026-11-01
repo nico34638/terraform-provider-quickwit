@@ -64,7 +64,7 @@ resource "quickwit_index" "logs" {
 
 ### Optional
 
-- `index_uri` (String) Storage URI of the index (`s3://bucket/indexes/foo`). Defaults to the node's `default_index_root_uri` joined with `index_id`. Changing it recreates the index.
+- `index_uri` (String) Storage URI of the index (`s3://bucket/indexes/foo`, `file:///var/lib/quickwit/indexes/foo`). Defaults to the node's `default_index_root_uri` joined with `index_id`. File paths must be absolute. Compared semantically: `file:///a/b/` and `file:///a/b` are the same URI. Changing it recreates the index.
 - `indexing_settings` (Attributes) Indexing settings. (see [below for nested schema](#nestedatt--indexing_settings))
 - `ingest_settings` (Attributes) Ingest API settings. (see [below for nested schema](#nestedatt--ingest_settings))
 - `retention` (Attributes) Retention policy: splits older than `period` are deleted. Requires `doc_mapping.timestamp_field`. Removing the block removes the policy. (see [below for nested schema](#nestedatt--retention))

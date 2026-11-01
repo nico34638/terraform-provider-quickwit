@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/attr/xattr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
@@ -30,6 +31,7 @@ const (
 	kindDynamicMapping normKind = "dynamic_mapping"
 	kindByteSize       normKind = "byte_size"
 	kindDuration       normKind = "duration"
+	kindIndexURI       normKind = "index_uri"
 )
 
 var normalizers = map[normKind]func(string) (string, error){
@@ -44,6 +46,7 @@ var normalizers = map[normKind]func(string) (string, error){
 		d, err := mapping.ParseHumanDuration(s)
 		return d.String(), err
 	},
+	kindIndexURI: mapping.NormalizeIndexURI,
 }
 
 var (
@@ -52,6 +55,7 @@ var (
 	dynamicMappingType = normalizedType{kind: kindDynamicMapping}
 	byteSizeType       = normalizedType{kind: kindByteSize}
 	durationType       = normalizedType{kind: kindDuration}
+	indexURIType       = normalizedType{kind: kindIndexURI}
 )
 
 var (
@@ -142,5 +146,32 @@ func (v normalizedValue) ValidateAttribute(_ context.Context, req xattr.Validate
 	}
 	if _, err := v.normalized(); err != nil {
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid value", err.Error())
+	}
+}
+
+// useStateWhenEquivalent plans the prior state value when the configured
+// value is semantically equal to it. Semantic equality only applies to the
+// values returned by Create, Read and Update: without this modifier, writing
+// a value in another equivalent form would plan an update, or a replacement
+// for an attribute with RequiresReplace (which must come after it).
+type useStateWhenEquivalent struct{ kind normKind }
+
+var _ planmodifier.String = useStateWhenEquivalent{}
+
+func (m useStateWhenEquivalent) Description(context.Context) string {
+	return "Keeps the current value when the configured one is equivalent."
+}
+
+func (m useStateWhenEquivalent) MarkdownDescription(ctx context.Context) string { return m.Description(ctx) }
+
+func (m useStateWhenEquivalent) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.StateValue.IsNull() || req.PlanValue.IsNull() || req.PlanValue.IsUnknown() || req.PlanValue.Equal(req.StateValue) {
+		return
+	}
+	planned := normalizedValue{StringValue: req.PlanValue, kind: m.kind}
+	equal, diags := planned.StringSemanticEquals(ctx, normalizedValue{StringValue: req.StateValue, kind: m.kind})
+	resp.Diagnostics.Append(diags...)
+	if equal {
+		resp.PlanValue = req.StateValue
 	}
 }
