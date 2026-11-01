@@ -13,7 +13,7 @@ import (
 // Set by goreleaser.
 var version = "dev"
 
-//go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name quickwit
+//go:generate go tool tfplugindocs generate --provider-name quickwit --rendered-provider-name Quickwit
 
 func main() {
 	var debug bool

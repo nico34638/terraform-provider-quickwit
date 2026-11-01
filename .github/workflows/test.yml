@@ -1,0 +1,88 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Build, lint, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+      - run: go test ./...
+
+  docs:
+    name: Generated docs are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: go generate ./...
+      - name: Check for changes
+        run: |
+          git diff --exit-code -- docs || {
+            echo "::error::docs/ is out of date: run 'go generate ./...' and commit the result"
+            exit 1
+          }
+
+  acceptance:
+    name: Acceptance (${{ matrix.cli }})
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        cli: [terraform, tofu]
+    env:
+      TF_ACC: "1"
+      TF_ACC_PROVIDER_NAMESPACE: nico34638
+      QUICKWIT_ENDPOINT: http://localhost:7280
+      QUICKWIT_TEST_SOURCES: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - if: matrix.cli == 'tofu'
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+      - name: Select the CLI used by the tests
+        run: echo "TF_ACC_TERRAFORM_PATH=$(command -v ${{ matrix.cli }})" >> "$GITHUB_ENV"
+      - name: Start Quickwit, Kafka and LocalStack
+        run: docker compose --profile sources up -d --wait
+      - run: go test ./... -count=1 -timeout 15m
+      - name: End-to-end test
+        env:
+          TF_BIN: ${{ matrix.cli }}
+          E2E_KAFKA_BOOTSTRAP: kafka:29092
+          E2E_KAFKA_TOPIC: tf-acc-1
+          E2E_SQS_QUEUE_URL: http://localstack:4566/000000000000/tf-acc
+          E2E_KINESIS_STREAM: tf-acc
+          E2E_KINESIS_ENDPOINT: http://localstack:4566
+        run: e2e/run.sh
+      - name: Quickwit logs
+        if: failure()
+        run: docker compose logs quickwit
