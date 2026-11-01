@@ -406,3 +406,75 @@ resource "quickwit_index" "test" {
 		},
 	})
 }
+
+// TestAccIndex_equivalentRewrites: rewriting values in an equivalent form
+// plans nothing (no false diffs), and keeps doc_mapping_uid; a real change
+// in the same configuration is still planned and applied.
+func TestAccIndex_equivalentRewrites(t *testing.T) {
+	id := randomIndexID()
+	type values struct{ heap, maturation, dynamic, field, tokenizer string }
+	config := func(v values) string {
+		return `
+resource "quickwit_index" "test" {
+  index_id = "` + id + `"
+  doc_mapping = {
+    dynamic_mapping = ` + v.dynamic + `
+    field_mappings  = [` + v.field + `]
+    tokenizers      = [` + v.tokenizer + `]
+  }
+  indexing_settings = {
+    heap_size    = "` + v.heap + `"
+    merge_policy = { maturation_period = "` + v.maturation + `" }
+  }
+}`
+	}
+	original := values{
+		heap:       "1GB",
+		maturation: "3days",
+		dynamic:    `jsonencode({ stored = false })`,
+		field:      `jsonencode({ name = "message", type = "text" })`,
+		tokenizer:  `jsonencode({ name = "trigram", type = "ngram", min_gram = 3, max_gram = 3 })`,
+	}
+	equivalent := values{
+		heap:       "1000MB",
+		maturation: "72h",
+		dynamic:    `jsonencode({ indexed = true, stored = false })`,
+		field:      `jsonencode({ type = "text", name = "message", indexed = true, stored = true, fast = false })`,
+		tokenizer:  `jsonencode({ max_gram = 3, min_gram = 3, name = "trigram", type = "ngram", prefix_only = false, filters = [] })`,
+	}
+	changed := equivalent
+	changed.heap = "2GB"
+
+	var mappingUID string
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviders,
+		CheckDestroy:             checkIndexDestroyed(id),
+		Steps: []resource.TestStep{
+			{
+				Config: config(original),
+				Check:  storeAttr("quickwit_index.test", "doc_mapping.doc_mapping_uid", &mappingUID),
+			},
+			{
+				Config: config(equivalent),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectEmptyPlan(),
+				}},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					// The state keeps the spelling it had.
+					resource.TestCheckResourceAttr("quickwit_index.test", "indexing_settings.heap_size", "1GB"),
+					resource.TestCheckResourceAttr("quickwit_index.test", "indexing_settings.merge_policy.maturation_period", "3days"),
+					checkAttrEquals("quickwit_index.test", "doc_mapping.doc_mapping_uid", &mappingUID),
+				),
+			},
+			{
+				Config: config(changed),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction("quickwit_index.test", plancheck.ResourceActionUpdate),
+					plancheck.ExpectKnownValue("quickwit_index.test", tfjsonPath("doc_mapping", "doc_mapping_uid"), knownString(&mappingUID)),
+				}},
+				Check: resource.TestCheckResourceAttr("quickwit_index.test", "indexing_settings.heap_size", "2GB"),
+			},
+		},
+	})
+}
