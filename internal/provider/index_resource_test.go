@@ -242,6 +242,11 @@ resource "quickwit_index" "test" {
   doc_mapping = {}
   retention   = { period = "1 day" }
 }`, `Retention requires a timestamp field`},
+		"invalid retention period": {indexConfig(id, "", "timestamp", `  retention = { period = "30 dayz" }`), `unknown unit "dayz"`},
+		"5-field cron schedule": {indexConfig(id, "", "timestamp", `  retention = {
+    period   = "1 day"
+    schedule = "0 3 * * *"
+  }`), `expected 6 or 7 fields`},
 		"dynamic_mapping in strict mode": {`
 resource "quickwit_index" "test" {
   index_id    = "` + id + `"

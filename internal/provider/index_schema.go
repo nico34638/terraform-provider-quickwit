@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/nico34638/terraform-provider-quickwit/internal/mapping"
 )
 
 // Server-side defaults (quickwit-config/src/index_config/mod.rs).
@@ -208,10 +210,22 @@ func indexSchema() schema.Schema {
 				Attributes: map[string]schema.Attribute{
 					"period": schema.StringAttribute{
 						Required: true, MarkdownDescription: "Retention period, e.g. `30 days`, `1 week`.",
+						Validators: []validator.String{funcValidator{
+							desc: "a duration such as `30 days`, `1 week` or `12h`",
+							check: func(s string) error {
+								_, err := mapping.ParseHumanDuration(s)
+								return err
+							},
+						}},
 					},
 					"schedule": schema.StringAttribute{
 						Optional: true, Computed: true, Default: stringdefault.StaticString(defaultRetentionSchedule),
-						MarkdownDescription: "When the policy is evaluated: `hourly`, `daily`, `weekly`, `monthly` or a cron expression. Defaults to `hourly`.",
+						MarkdownDescription: "When the policy is evaluated: `hourly`, `daily`, `weekly`, `monthly`, `yearly` or a cron expression " +
+							"with seconds (`0 0 3 * * *`: every day at 03:00). Defaults to `hourly`.",
+						Validators: []validator.String{funcValidator{
+							desc:  "`hourly`, `daily`, `weekly`, `monthly`, `yearly` or a 6- or 7-field cron expression",
+							check: mapping.ValidateRetentionSchedule,
+						}},
 					},
 					"evaluation_schedule_jitter": schema.StringAttribute{
 						Optional: true, CustomType: durationType,
