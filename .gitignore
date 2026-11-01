@@ -1,0 +1,8 @@
+/terraform-provider-quickwit
+/dist/
+.direnv/
+result
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl

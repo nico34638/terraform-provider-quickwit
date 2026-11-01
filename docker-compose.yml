@@ -1,0 +1,16 @@
+# Quickwit instance used by acceptance tests (TF_ACC=1).
+# Start: docker compose up -d   Stop: docker compose down -v
+services:
+  quickwit:
+    image: quickwit/quickwit:${QUICKWIT_VERSION:-edge}
+    command: run
+    ports:
+      - "7280:7280"
+      - "7281:7281"
+    environment:
+      QW_DISABLE_TELEMETRY: "1"
+    volumes:
+      - quickwit-data:/quickwit/qwdata
+
+volumes:
+  quickwit-data:
